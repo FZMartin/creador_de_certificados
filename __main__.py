@@ -6,7 +6,7 @@ def main():
               csv_path='',
               keywords_map=[])
     
-    app.create_certificate()
+    app.create_certificates()
 
 if __name__ == '__main__':
     main()
