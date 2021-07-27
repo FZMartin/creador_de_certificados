@@ -7,6 +7,8 @@ import docx
 
 
 class App(object):
+    CSV_FIELDS = ['correo', 'nombre', 'apellido', 'dni', 'pdf']
+    
     def __init__(self, dest_path:str, word_template_path:str, csv_path:str, keywords_map:list) -> None:
         """
         Clase entorno para aplicacion de creacion de certificados
@@ -20,25 +22,29 @@ class App(object):
         self.csv1_path = csv_path
         self.keywordsMap = keywords_map
         
-        self.template = WordManage(word_template_path, self.keywordsMap)
-        
-        
-        
     def make_certificates(self):
         """
         Metodo principal para iniciar creacion de certificados.
         """
-        pass
+        
+
+    def open_template(self):
+        self.template = WordManage(self.template_path, self.keywordsMap)
+        
+    def get_openned_csv(self, mode: str):
+        csv_file = CsvLoader(self.csv1_path, mode, self.CSV_FIELDS)
+        return csv_file
 
 
 class WordManage(Document):
-    def __init__(self, word_path:str, keywords:list, ) -> None:
+    def __init__(self, app: App, word_path:str, keywords:list) -> None:
         """
         Clase para manipulacion rapida de archivos word
         
         :param word_path: ubicacion del archivo word 
         :param keywords: lista con las palabras claves a remplazar
         """
+        self.app = app
         self.path = word_path
         self.keywords = keywords
         self.docx = Document(self.path)
@@ -68,12 +74,12 @@ class WordManage(Document):
     
     def save_as(self, _dest_path:str, file_name:str):
         try:
-            self.docx.save(f'{_dest_path}\\{file_name.upper()}')
+            self.docx.save(f'{_dest_path}\\{file_name.upper()}.docx')
         except:
             print(f'Error al guardar')
 
 
-class PersonToCertificate:
+class Person:
     def __init__(self, _app:App, _nombre:str, _apellido:str, _dni:str):
         self.app = _app
         self.nombre = _nombre.upper()
@@ -93,45 +99,51 @@ class PersonToCertificate:
         return f'{self.nombre} {self.apellido}'
     
     def make_my_certificate(self):
-        pass
+        print(f'Valores a reemplazar: {self.app.keywordsMap}')
         
-            
+        info = [self.get_full_name(), self.dni]
+        
+        print(f'Valores que se reemplazaran: {info}')
+        
+        self.app.template.replace(info)
+        
+        self.app.template.save_as(self.app.destPath, f'{self.get_full_name()}')
+        
+
         
 class CsvLoader(object):
-    def __init__(self, csvPath, mode, fields):
+    def __init__(self, csvPath: str, mode: str, fields: list):
         """
-        Punto de inicio para la clase CSVLoader.
-
+        Constructor para la clase CSVLoader.
         :param csvPath: str path del archivo
         :param mode: str r(read)/w(write)/a(append)
         PRECAUCION: w mode sobreescribira un archivo como vacio
         :param fields:
         """
+
         self.csvFile = open(csvPath, mode=mode, encoding='UTF-8', newline='')
         self.fields = fields
+
         if self.csvFile.mode == 'r':
             self.reader = csv.DictReader(self.csvFile, fields)
         elif self.csvFile.mode == 'w':
             self.writer = csv.DictWriter(self.csvFile, fields)
-        elif self.csvFile.mode == 'a':
-            self.writer = csv.DictWriter(self.csvFile, fields)
-        else:
-            print('mode must be "r" (read), "w" (write) or "a" (append)')
 
     def getContentAsList(self, firstLineHeaders=False):
         """
         En caso de que el modo sea r, se crea un reader, con el cual se puede obtener todo el contenido del archivo como
         una lista.
-
         :param firstLineHeaders: bool
         :return: list
         """
         try:
-            contentList = [[i[self.fields[0]],
-                            i[self.fields[1]],
-                            i[self.fields[2]],
-                            i[self.fields[3]],
-                            i[self.fields[4]]] for i in self.reader]
+            contentList: list = []
+            row: list = []
+            for i in self.reader:
+                for field in self.fields:
+                    row.append(i[field])
+                contentList.append(row)
+                row = []
             if firstLineHeaders:
                 return contentList[1:]
             else:
@@ -139,14 +151,10 @@ class CsvLoader(object):
         except AttributeError as e:
             print(f'there is no reader.\nERROR: {e}')
             return None
-    
-    def append(self, ):
-        pass
 
     def close(self):
         """
         Funcion para cerrar archivo leido.
-
         :return:
         """
         self.csvFile.close()
