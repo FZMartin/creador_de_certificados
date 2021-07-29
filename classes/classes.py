@@ -2,6 +2,7 @@ import os
 from docx import Document
 import csv
 from datetime import datetime
+import docx2pdf
 
 import docx
 
@@ -22,21 +23,30 @@ class App(object):
         self.csv1_path = csv_path
         self.keywordsMap = keywords_map
         
-    def make_certificates(self):
+    def create_certificates(self):
         """
         Metodo principal para iniciar creacion de certificados.
         """
+        self.csv_partida = CsvLoader(self.csv1_path, 'r', self.CSV_FIELDS)
+        self.csv_resultado = CsvLoader(os.path.join(self.destPath, 'res.csv'), 'w', self.CSV_FIELDS)
+        persons = self.csv_partida.getContentAsList(firstLineHeaders=True)
+        self.template = WordManage(self, self.template_path, self.keywordsMap)
         
-
-    def open_template(self):
-        self.template = WordManage(self.template_path, self.keywordsMap)
+        for correo, nombre, apellido, dni, pdf in persons:
+            self.template.open_template()
+            _person = Person(self, correo, nombre, apellido, dni)
+            print(_person.__str__())
+            _person.make_my_certificate()
+            self.template.close_template()
         
-    def get_openned_csv(self, mode: str):
-        csv_file = CsvLoader(self.csv1_path, mode, self.CSV_FIELDS)
-        return csv_file
+        self.csv_partida.close()
+        self.csv_resultado.close()
 
+    def export_to_pdf(self):
+        docx2pdf.convert(self.destPath)
 
-class WordManage(Document):
+    
+class WordManage:
     def __init__(self, app: App, word_path:str, keywords:list) -> None:
         """
         Clase para manipulacion rapida de archivos word
@@ -47,7 +57,12 @@ class WordManage(Document):
         self.app = app
         self.path = word_path
         self.keywords = keywords
+        
+    def open_template(self):
         self.docx = Document(self.path)
+        
+    def close_template(self):
+        del self.docx
         
     def replace(self, info:list):
         """
@@ -60,15 +75,16 @@ class WordManage(Document):
                 try:
                     for table in self.docx.tables:
                         for row in table.rows:
-                            for cell in row:
+                            for cell in row.cells:
                                 for p in cell.paragraphs:
                                     for run in p.runs:
-                                        if run.text == keyword:
-                                            run.text = item
-                        else:
-                            print(f'No se encontro la palabra clave {keyword}')
+                                        if keyword in run.text:
+                                            run.text = run.text.replace(keyword, item)
+                                            print(f'Se reemplazo {item} en key {keyword}')
                 except:
                     print(f'Error al remplazar informacion') 
+                    raise
+                    
         else:
             print('Deben haber iguales cantidades de argumentos y de palabras claves')
     
@@ -80,20 +96,15 @@ class WordManage(Document):
 
 
 class Person:
-    def __init__(self, _app:App, _nombre:str, _apellido:str, _dni:str):
+    def __init__(self, _app:App, _correo:str, _nombre:str, _apellido:str, _dni:str):
         self.app = _app
+        self.correo = _correo
         self.nombre = _nombre.upper()
         self.apellido = _apellido.upper()
-        self.dni = self.fix(_dni)
-        
-    def fix(self, _dni:str):
-        dni = _dni
-        if '.' not in dni:
-            dni = f'{dni[:2]}.{dni[2:5]}.{dni[5:]}'
-            return dni
-        else:
-            dni.replace('.', '')
-            self.fix(dni)
+        self.dni = self.decore_dni(_dni)
+    
+    def __str__(self):
+        return f'\n{self.nombre} {self.apellido}, dni: {self.dni}, correo: {self.correo}'
     
     def get_full_name(self) -> str:
         return f'{self.nombre} {self.apellido}'
@@ -107,10 +118,32 @@ class Person:
         
         self.app.template.replace(info)
         
-        self.app.template.save_as(self.app.destPath, f'{self.get_full_name()}')
+        self.app.template.save_as(self.app.destPath, f'{self.get_full_name()}.docx')
         
+        self.app.csv_resultado.write_row([self.correo, self.nombre, self.apellido, self.clear_dni(self.dni),
+                                          os.path.join(self.app.destPath, f'{self.get_full_name().upper()}.pdf')])
+        
+    def clear_dni(self, dni:str) -> str:
+        """
+        Esta funcion corrige el formato del dato dni cuando sea necesario. Devuelve el dato eliminando cualquier aparicion de espacios
+        y puntos.
+        
+        :param dni: str con el dato de la persona
+        :return res: str con el dato formateado
+        """
+        res = dni.replace(' ', '').replace('.', '')
+        return res
+        
+    def decore_dni(self, _dni:str):
+        dni = _dni
+        if '.' not in dni:
+            dni = f'{dni[:2]}.{dni[2:5]}.{dni[5:]}'
+            return dni
+        else:
+            dni.replace('.', '')
+            self.fix(dni)
+            
 
-        
 class CsvLoader(object):
     def __init__(self, csvPath: str, mode: str, fields: list):
         """
@@ -126,8 +159,10 @@ class CsvLoader(object):
 
         if self.csvFile.mode == 'r':
             self.reader = csv.DictReader(self.csvFile, fields)
-        elif self.csvFile.mode == 'w':
+        elif self.csvFile.mode == 'w' or self.csvFile.mode == 'a':
             self.writer = csv.DictWriter(self.csvFile, fields)
+            if self.csvFile.mode == 'w':
+                self.writer.writeheader()
 
     def getContentAsList(self, firstLineHeaders=False):
         """
@@ -152,6 +187,17 @@ class CsvLoader(object):
             print(f'there is no reader.\nERROR: {e}')
             return None
 
+    def write_row(self, row: list):
+        try:
+            dict_row = {}
+            
+            for key, value in zip(self.fields, row):
+                dict_row[key] = value
+                
+            self.writer.writerow(dict_row)
+        except AttributeError as e:
+            print(f'there is no writer.\nERROR: {e}')
+        
     def close(self):
         """
         Funcion para cerrar archivo leido.
